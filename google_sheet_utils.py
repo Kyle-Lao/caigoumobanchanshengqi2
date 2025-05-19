@@ -7,4 +7,4 @@ def get_sheet():
     creds = st.secrets["gcp_service_account"]
     credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds, scope)
     client = gspread.authorize(credentials)
-    return client.open("Life Settlement Policies").sheet1
+    return client.open_by_key("145Q3_H3kMlOP3sW7d6MR4fVzbRegNsEJ0WJmNjhJOcA").sheet1
