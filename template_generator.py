@@ -22,7 +22,7 @@ def generate_return_template(
     remaining_le_months = max(le_months - elapsed_months, 0)
     remaining_le_years = (remaining_le_months + 11) // 12
     total_years = remaining_le_years + 3
-    start_year = le_report_date.year
+    start_year = today.year
     age = int((le_report_date - dob).days / 365.25 + elapsed_months / 12)
 
     annual_premiums = {year: sum(months) for year, months in monthly_premiums.items()}
