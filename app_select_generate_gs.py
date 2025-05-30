@@ -32,8 +32,6 @@ selection = st.selectbox("Choose a policy:", options=policy_keys, format_func=la
 if selection:
     policy = policies[selection]
 
-    # 🔍 DEBUG: Show all keys in the policy
-    st.write("🔍 Policy keys:", list(policy.keys()))
 
     st.write("**Carrier:**", policy["carrier"])
     st.write("**DOB:**", policy["dob"])
