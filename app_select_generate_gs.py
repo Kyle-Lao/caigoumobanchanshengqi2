@@ -31,6 +31,10 @@ selection = st.selectbox("Choose a policy:", options=policy_keys, format_func=la
 
 if selection:
     policy = policies[selection]
+
+    # 🔍 DEBUG: Show all keys in the policy
+    st.write("🔍 Policy keys:", list(policy.keys()))
+
     st.write("**Carrier:**", policy["carrier"])
     st.write("**DOB:**", policy["dob"])
     st.write("**LE Report Date:**", policy["le_report_date"])
@@ -66,3 +70,4 @@ if selection:
         with open(output_path, "rb") as f:
             st.success("✅ Template generated successfully!")
             st.download_button("📥 Download Excel", f, file_name=output_filename)
+
