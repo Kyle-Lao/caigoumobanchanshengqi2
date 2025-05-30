@@ -6,6 +6,13 @@ from google_sheet_utils import get_sheet
 st.set_page_config(page_title="Policy Onboarding", layout="centered")
 st.title("📥 Life Settlement Policy Onboarding")
 
+# 🔄 Restart Onboarding Button
+if st.button("🔄 Start Over"):
+    st.session_state.step = 1
+    st.session_state.policy_inputs = {}
+    st.session_state.premium_years = []
+    st.experimental_rerun()
+
 if "step" not in st.session_state:
     st.session_state.step = 1
 if "policy_inputs" not in st.session_state:
