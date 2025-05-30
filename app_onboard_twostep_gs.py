@@ -1,4 +1,3 @@
-
 import streamlit as st
 import json
 from datetime import date
@@ -24,6 +23,7 @@ if st.session_state.step == 1:
         le_months = st.number_input("Life Expectancy at Report Generation (months)", min_value=1, step=1)
         le_report_date = st.date_input("LE Report Generation Date", min_value=date(1900, 1, 1), max_value=date.today())
         death_benefit = st.number_input("Death Benefit", step=1000.0)
+        internal_cost = st.number_input("Internal Cost", min_value=0.0, step=100.0, format="%.2f")
         submitted = st.form_submit_button("Next: Enter Premiums")
 
     if submitted:
@@ -38,6 +38,7 @@ if st.session_state.step == 1:
             "le_months": int(le_months),
             "le_report_date": str(le_report_date),
             "death_benefit": death_benefit,
+            "internal_cost": internal_cost
         }
         st.session_state.premium_years = years
         st.session_state.step = 2
@@ -82,6 +83,7 @@ if st.session_state.step == 2:
                     st.session_state.policy_inputs["le_months"],
                     st.session_state.policy_inputs["le_report_date"],
                     st.session_state.policy_inputs["death_benefit"],
+                    st.session_state.policy_inputs["internal_cost"],
                     json.dumps(premiums)
                 ])
                 st.success(f"✅ Policy for {st.session_state.policy_inputs['insured_name']} saved to Google Sheets.")
