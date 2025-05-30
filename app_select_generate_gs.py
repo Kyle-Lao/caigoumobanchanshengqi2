@@ -1,4 +1,3 @@
-
 import streamlit as st
 import json
 from google_sheet_utils import get_sheet
@@ -38,7 +37,15 @@ if selection:
     st.write("**LE (months):**", policy["le_months"])
     st.write("**Death Benefit:**", f"${policy['death_benefit']:,.2f}")
 
-    investment = st.number_input("Enter Investment Amount", min_value=0.0, step=1000.0)
+    # Internal Cost (optional field, shown only to user)
+    internal_cost = policy.get("internal_cost", 0.0)
+    try:
+        internal_cost = float(internal_cost)
+    except (ValueError, TypeError):
+        internal_cost = 0.0
+    st.write("**Internal Cost:**", f"${internal_cost:,.2f}")
+
+    investment = st.number_input("Enter Investment Amount", min_value=0.0, step=1000.0, value=internal_cost)
 
     if st.button("Generate Return Template"):
         monthly_premiums = {int(k): v for k, v in policy["monthly_premiums"].items()}
@@ -57,5 +64,5 @@ if selection:
         )
 
         with open(output_path, "rb") as f:
-            st.success("✅ Template generated!")
-            st.download_button("📥 Download Return Template", f, file_name=output_filename)
+            st.success("✅ Template generated successfully!")
+            st.download_button("📥 Download Excel", f, file_name=output_filename)
