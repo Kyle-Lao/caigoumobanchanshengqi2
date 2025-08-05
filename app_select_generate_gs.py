@@ -52,7 +52,7 @@ if selection:
     if st.button("Generate Purchase Template"):
         monthly_premiums = {int(k): v for k, v in policy["monthly_premiums"].items()}
 
-        output_filename = f"return_template_{selection}.xlsx"
+        output_filename = f"purchase_template_{selection}.xlsx"
         output_path = generate_return_template(
             insured_name=policy["insured_name"],
             dob=policy["dob"],
