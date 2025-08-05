@@ -20,8 +20,8 @@ if not policies:
     st.error("❌ No saved policies found. Please onboard policies first.")
     st.stop()
 
-st.set_page_config(page_title="Generate Return Template", layout="centered")
-st.title("📄 Select Policy & Generate Return Template")
+st.set_page_config(page_title="Generate Purchase Template", layout="centered")
+st.title("📄 Select Policy & Generate Purchase Template")
 
 # List of insured names
 policy_keys = list(policies.keys())
@@ -47,9 +47,9 @@ if selection:
         internal_cost = 0.0
     st.write("**Internal Cost:**", f"${internal_cost:,.2f}")
 
-    investment = st.number_input("Enter Investment Amount", min_value=0.0, step=1000.0, value=internal_cost)
+    investment = st.number_input("Enter Client Cost", min_value=0.0, step=1000.0, value=internal_cost)
 
-    if st.button("Generate Return Template"):
+    if st.button("Generate Purchase Template"):
         monthly_premiums = {int(k): v for k, v in policy["monthly_premiums"].items()}
 
         output_filename = f"return_template_{selection}.xlsx"
