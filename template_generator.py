@@ -16,26 +16,53 @@ def _clean_to_float(v: NumberLike) -> float:
             return 0.0
     return 0.0
 
-def _get_monthly_premium(mp_dict: Dict[int, List[NumberLike]], year: int, month_1based: int) -> float:
+def _coerce_year_key(k) -> Union[int, None]:
+    """Coerce year keys like '2025', '2025.0', 2025.0 -> 2025; return None if impossible."""
+    if isinstance(k, int):
+        return k
+    if isinstance(k, float):
+        return int(round(k))
+    if isinstance(k, str):
+        s = k.strip()
+        try:
+            return int(s)
+        except Exception:
+            try:
+                return int(float(s))
+            except Exception:
+                return None
+    return None
+
+def _get_monthly_premium_frontfill_tail(
+    mp_dict: Dict[int, List[NumberLike]],
+    year: int,
+    month_1based: int
+) -> float:
     """
-    Return the premium for a given (year, month) from mp_dict where each year maps to
-    a list (up to 12) of monthly values in Jan..Dec order. Missing/invalid -> 0.0.
+    Return the premium for (year, month). Each year maps to a list of monthly values.
+    If a year has < 12 entries, assume the missing months are at the FRONT (Jan..),
+    i.e., the provided values align to the END of the year (… Sep, Oct, Nov, Dec).
+    Example: 9 entries -> treat Jan/Feb/Mar as 0, entries correspond to Apr..Dec.
     """
     lst = mp_dict.get(year)
     if not isinstance(lst, (list, tuple)):
         return 0.0
 
-    # Normalize to length 12 with cleaned floats (pad with zeros if shorter)
-    clean12: List[float] = []
-    for i in range(12):
-        if i < len(lst):
-            clean12.append(_clean_to_float(lst[i]))
-        else:
-            clean12.append(0.0)
+    clean = [_clean_to_float(x) for x in lst]
+    n = len(clean)
 
-    # Clamp month to [1..12] and index
-    idx = max(1, min(12, month_1based)) - 1
-    return clean12[idx]
+    # Clamp month to [1..12]
+    m = max(1, min(12, month_1based))
+
+    if n >= 12:
+        return clean[m - 1]
+
+    # Front-fill zeros: provided values occupy the LAST n months of the year
+    offset = 12 - n  # number of missing months at the start (treated as zeros)
+    idx = (m - 1) - offset
+    if idx < 0 or idx >= n:
+        return 0.0
+    return clean[idx]
 
 def generate_return_template(
     insured_name: str,
@@ -45,7 +72,7 @@ def generate_return_template(
     le_report_date: str,
     death_benefit: float,
     investment: float,
-    monthly_premiums: Dict[int, List[NumberLike]],
+    monthly_premiums: Dict[int, List[float]],
     output_filename: str
 ) -> str:
     # Parse dates / anchors
@@ -56,18 +83,18 @@ def generate_return_template(
     # Elapsed/remaining LE
     elapsed_months = (today.year - le_report_dt.year) * 12 + today.month - le_report_dt.month
     remaining_le_months = max(le_months - elapsed_months, 0)
-    remaining_le_years = (remaining_le_months + 11) // 12  # ceil months/12
+    remaining_le_years = (remaining_le_months + 11) // 12
     total_years = remaining_le_years + 3
     start_year = today.year
 
     # Approximate age at "today" anchored from LE report date + elapsed months
     age = int((le_report_dt - dob_dt).days / 365.25 + elapsed_months / 12)
 
-    # Defensive: ensure year keys are ints
-    try:
-        monthly_premiums = {int(k): v for k, v in monthly_premiums.items()}
-    except Exception:
-        pass
+    # Coerce year keys robustly and keep only valid ones
+    monthly_premiums = {
+        yk: v for k, v in (monthly_premiums or {}).items()
+        if (yk := _coerce_year_key(k)) is not None
+    }
 
     # Annual premium totals (robust to string inputs)
     annual_premiums: Dict[int, float] = {}
@@ -80,6 +107,7 @@ def generate_return_template(
     # Load template and clear old output rows (keep headers up to row 6)
     wb = load_workbook("return_template_output.xlsx")
     ws = wb.active
+
     for _ in range(7, ws.max_row + 1):
         ws.delete_rows(7)
 
@@ -92,18 +120,19 @@ def generate_return_template(
     ws["E4"] = investment
 
     # === Auto-calc: next 3 months of premiums (including this month) -> E5 ===
-    _now = datetime.now()
-    _cur_y, _cur_m = _now.year, _now.month  # month is 1..12
+    now_dt = datetime.now()
+    cur_y, cur_m = now_dt.year, now_dt.month  # 1..12
 
     # Build (year, month) positions for current month + next two months, handling year wrap
     positions = []
     for off in range(3):
-        y = _cur_y + ((_cur_m - 1 + off) // 12)
-        m = ((_cur_m - 1 + off) % 12) + 1
+        y = cur_y + ((cur_m - 1 + off) // 12)
+        m = ((cur_m - 1 + off) % 12) + 1
         positions.append((y, m))
 
-    next_three_sum = sum(_get_monthly_premium(monthly_premiums, y, m) for (y, m) in positions)
-
+    next_three_sum = sum(
+        _get_monthly_premium_frontfill_tail(monthly_premiums, y, m) for (y, m) in positions
+    )
     ws["E5"] = next_three_sum
     ws["E5"].number_format = '"$"#,##0.00'
     # === end auto-calc E5 ===
@@ -119,7 +148,6 @@ def generate_return_template(
         simple_return = (profit / total_cost) if total_cost else 0.0
         acc_return = (simple_return / (i + 1)) if (i + 1) else 0.0
 
-        # LE markers
         marker = ""
         if i == remaining_le_years - 1:
             marker = "LE"
@@ -144,9 +172,8 @@ def generate_return_template(
 
         # Highlight LE row (bold + light blue fill)
         if i == remaining_le_years - 1:
-            # Data starts at row 7; this row is 7 + i
             for col in range(2, 9):  # columns B..H
-                cell = ws.cell(row=7 + i, column=col)
+                cell = ws.cell(row=6 + i + 1, column=col)  # == row 7 + i
                 cell.font = Font(bold=True)
                 cell.fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
 
