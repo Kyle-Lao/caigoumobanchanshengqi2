@@ -21,7 +21,7 @@ if not policies:
     st.stop()
 
 st.set_page_config(page_title="Generate Purchase Template", layout="centered")
-st.title("📄 Select Policy & Generate Purchase Template")
+st.title("Life Settlement Template Generator")
 
 # List of insured names
 policy_keys = list(policies.keys())
