@@ -1,9 +1,84 @@
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
 from datetime import datetime, date
+from pathlib import Path
 from typing import Dict, List, Union
+from openpyxl import load_workbook
 
 NumberLike = Union[float, int, str]
+
+def _clean_to_float(v: NumberLike) -> float:
+    if isinstance(v, (int, float)): return float(v)
+    if isinstance(v, str):
+        try: return float(v.replace("$","").replace(",","").strip())
+        except: return 0.0
+    return 0.0
+
+def _coerce_year_key(k) -> int | None:
+    try: return int(str(k).strip())
+    except: return None
+
+def _elapsed_remaining_le(le_months: int, le_report_date: str) -> tuple[int,int,int]:
+    # (elapsed_months, remaining_le_months, remaining_le_years)
+    le_dt = datetime.strptime(le_report_date, "%Y-%m-%d")
+    today = date.today()
+    elapsed = (today.year - le_dt.year) * 12 + (today.month - le_dt.month)
+    rem = max(int(le_months) - elapsed, 0)
+    rem_years = (rem + 11) // 12
+    return elapsed, rem, rem_years
+
+def _age_today(dob: str, le_report_date: str, elapsed_months: int) -> int:
+    dob_dt = datetime.strptime(dob, "%Y-%m-%d")
+    le_dt = datetime.strptime(le_report_date, "%Y-%m-%d")
+    return int((le_dt - dob_dt).days / 365.25 + elapsed_months / 12)
+
+def _normalize_month_map(monthly_premiums: Dict) -> Dict[int, List[float]]:
+    # {year: [ ... months ... ]}, keep only int year keys; coerce values to float list
+    out: Dict[int, List[float]] = {}
+    for k, v in (monthly_premiums or {}).items():
+        y = _coerce_year_key(k)
+        if y is None: continue
+        if not isinstance(v, (list, tuple)):
+            out[y] = []
+            continue
+        out[y] = [_clean_to_float(x) for x in v]
+    return out
+
+def _month_value_for(year: int, month_idx0: int, year_map: Dict[int, List[float]]) -> float:
+    """
+    0-based month; align arrays to end of year:
+    - if len(list) == 12: direct index
+    - if len(list) < 12: last element = December; missing leading months are zeros
+    """
+    arr = year_map.get(year, [])
+    L = len(arr)
+    if L == 12:
+        return arr[month_idx0]
+    if L == 0:
+        return 0.0
+    start_at = 12 - L  # first filled month index
+    if month_idx0 < start_at:
+        return 0.0
+    return arr[month_idx0 - start_at]
+
+def _sum_next_n_months(start_year: int, start_month_idx0: int, n: int, year_map: Dict[int, List[float]]) -> float:
+    total = 0.0
+    y, m = start_year, start_month_idx0
+    for _ in range(max(n, 0)):
+        total += _month_value_for(y, m, year_map)
+        m += 1
+        if m == 12:
+            m = 0
+            y += 1
+    return total
+
+def _premiums_to_le(start_year: int, start_month_idx0: int, rem_le_months: int, year_map: Dict[int, List[float]]) -> float:
+    if rem_le_months <= 0:
+        return 0.0
+    # include current month + next (rem_le_months-1)
+    return _sum_next_n_months(start_year, start_month_idx0, rem_le_months, year_map)
+# === end helpers ===
+
 
 def _clean_to_float(v: NumberLike) -> float:
     """Convert numbers or currency-like strings to float; invalid -> 0.0"""
@@ -195,3 +270,110 @@ def generate_return_template(
 
     wb.save(output_filename)
     return output_filename
+
+# === Resale generator (paste near the end of file) ===
+def generate_resale_template(
+    insured_name: str,
+    dob: str,
+    carrier: str,
+    le_months: int,
+    le_report_date: str,
+    death_benefit: NumberLike,
+    investment: NumberLike,              # client’s purchase price (matches E4 in purchase template)
+    monthly_premiums: Dict,              # {year: [months]}
+    output_filename: str = None
+) -> str:
+    today = date.today()
+    this_year, this_month_idx0 = today.year, today.month - 1  # 0-based month
+    elapsed, remaining_le_months, _ = _elapsed_remaining_le(int(le_months), le_report_date)
+    age = _age_today(dob, le_report_date, elapsed)
+
+    premium_map = _normalize_month_map(monthly_premiums)
+    DB = _clean_to_float(death_benefit)
+    COST0 = _clean_to_float(investment)
+
+    # Load template from repo root (same folder as this .py or project root)
+    here = Path(__file__).resolve().parent
+    candidate_paths = [
+        here / "Resale Template Sample.xlsx",
+        Path.cwd() / "Resale Template Sample.xlsx",
+    ]
+    xlsx_path = next((p for p in candidate_paths if p.exists()), None)
+    if xlsx_path is None:
+        raise FileNotFoundError("Resale Template Sample.xlsx not found in repo. Place it next to template_generator.py or at project root.")
+
+    wb = load_workbook(xlsx_path.as_posix())
+    ws = wb.active
+
+    # Headers
+    ws["B1"].value = insured_name
+    ws["B2"].value = f"AGE: {age}"
+    ws["B3"].value = f"CARRIER: {carrier}"
+    ws["F1"].value = today.strftime("%Y-%m-%d")
+    ws["F2"].value = f"{remaining_le_months} MONTHS"
+    ws["F3"].value = DB
+    ws["F4"].value = COST0
+
+    # Effective months (B8..B11)
+    B8 = max(remaining_le_months - 24, 0)
+    B9 = max(B8 - 12, 0)
+    B10 = max(B9 - 12, 0)
+    B11 = max(B10 - 12, 0)
+    ws["B8"].value, ws["B9"].value, ws["B10"].value, ws["B11"].value = B8, B9, B10, B11
+
+    # Cumulative premiums from today (C8..C11): 24/36/48/60 months
+    C8 = _sum_next_n_months(this_year, this_month_idx0, 24, premium_map)
+    C9 = _sum_next_n_months(this_year, this_month_idx0, 36, premium_map)
+    C10 = _sum_next_n_months(this_year, this_month_idx0, 48, premium_map)
+    C11 = _sum_next_n_months(this_year, this_month_idx0, 60, premium_map)
+    ws["C8"].value, ws["C9"].value, ws["C10"].value, ws["C11"].value = C8, C9, C10, C11
+
+    # Premiums to LE (baseline) and D8..D11 deltas
+    P_LE = _premiums_to_le(this_year, this_month_idx0, remaining_le_months, premium_map)
+    D8 = max(P_LE - C8, 0.0)
+    D9 = max(P_LE - C9, 0.0)
+    D10 = max(P_LE - C10, 0.0)
+    D11 = max(P_LE - C11, 0.0)
+    ws["D8"].value, ws["D9"].value, ws["D10"].value, ws["D11"].value = D8, D9, D10, D11
+
+    # Resale price (Client 2 buys; 18% avg return to LE)
+    def _resale_price(Bm, Dm):
+        denom = (0.18 * max(Bm, 0)) + 12.0
+        return ((12.0 * DB) - (12.0 * Dm)) / denom if denom > 0 else 0.0
+
+    E8 = _resale_price(B8, D8)
+    E9 = _resale_price(B9, D9)
+    E10 = _resale_price(B10, D10)
+    E11 = _resale_price(B11, D11)
+    ws["E8"].value, ws["E9"].value, ws["E10"].value, ws["E11"].value = E8, E9, E10, E11
+
+    # Client 1 proceeds (F) and annualized returns (G)
+    F8, F9, F10, F11 = E8 - C8 - COST0, E9 - C9 - COST0, E10 - C10 - COST0, E11 - C11 - COST0
+    ws["F8"].value, ws["F9"].value, ws["F10"].value, ws["F11"].value = F8, F9, F10, F11
+
+    def _ann_return(Fm, Cm, yrs):
+        base = COST0 + Cm
+        return (Fm / base / yrs) if base > 0 and yrs > 0 else 0.0
+
+    G8 = _ann_return(F8, C8, 2)
+    G9 = _ann_return(F9, C9, 3)
+    G10 = _ann_return(F10, C10, 4)
+    G11 = _ann_return(F11, C11, 5)
+    ws["G8"].value, ws["G9"].value, ws["G10"].value, ws["G11"].value = G8, G9, G10, G11
+
+    # Formats
+    for addr in ("F3","F4","C8","C9","C10","C11","D8","D9","D10","D11","E8","E9","E10","E11","F8","F9","F10","F11"):
+        ws[addr].number_format = '"$"#,##0.00'
+    for addr in ("G8","G9","G10","G11"):
+        ws[addr].number_format = '0.00%'
+
+    # Optional visual cue on B8:B11
+    fill = PatternFill(start_color="E8F0FE", end_color="E8F0FE", fill_type="solid")
+    for r in (8,9,10,11):
+        ws[f"B{r}"].fill = fill
+
+    safe = insured_name.lower().replace(" ", "_")
+    out = output_filename or f"resale_template_{safe}.xlsx"
+    wb.save(out)
+    return out
+# === end generator ===
