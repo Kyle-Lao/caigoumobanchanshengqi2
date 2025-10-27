@@ -1,7 +1,7 @@
 import streamlit as st
 import json
 from google_sheet_utils import get_sheet
-from template_generator import generate_return_template
+from template_generator import generate_return_template, generate_resale_template
 
 # Load policies from Google Sheets
 sheet = get_sheet()
@@ -32,7 +32,6 @@ selection = st.selectbox("Choose a policy:", options=policy_keys, format_func=la
 if selection:
     policy = policies[selection]
 
-
     st.write("**Carrier:**", policy["carrier"])
     st.write("**DOB:**", policy["dob"])
     st.write("**LE Report Date:**", policy["le_report_date"])
@@ -49,23 +48,48 @@ if selection:
 
     investment = st.number_input("Enter Client Cost", min_value=0.0, step=1000.0, value=internal_cost)
 
-    if st.button("Generate Purchase Template"):
-        monthly_premiums = {int(k): v for k, v in policy["monthly_premiums"].items()}
+    col1, col2 = st.columns(2)
 
-        output_filename = f"purchase_template_{selection}.xlsx"
-        output_path = generate_return_template(
-            insured_name=policy["insured_name"],
-            dob=policy["dob"],
-            carrier=policy["carrier"],
-            le_months=policy["le_months"],
-            le_report_date=policy["le_report_date"],
-            death_benefit=policy["death_benefit"],
-            investment=investment,
-            monthly_premiums=monthly_premiums,
-            output_filename=output_filename
-        )
+    with col1:
+        if st.button("Generate Purchase Template"):
+            monthly_premiums = {int(k): v for k, v in policy["monthly_premiums"].items()}
 
-        with open(output_path, "rb") as f:
-            st.success("✅ Template generated successfully!")
-            st.download_button("📥 Download Excel", f, file_name=output_filename)
+            output_filename = f"purchase_template_{selection}.xlsx"
+            output_path = generate_return_template(
+                insured_name=policy["insured_name"],
+                dob=policy["dob"],
+                carrier=policy["carrier"],
+                le_months=policy["le_months"],
+                le_report_date=policy["le_report_date"],
+                death_benefit=policy["death_benefit"],
+                investment=investment,
+                monthly_premiums=monthly_premiums,
+                output_filename=output_filename
+            )
+
+            with open(output_path, "rb") as f:
+                st.success("✅ Template generated successfully!")
+                st.download_button("📥 Download Excel", f, file_name=output_filename)
+
+    with col2:
+        if st.button("Generate Resale Template"):
+            monthly_premiums = {int(k): v for k, v in policy["monthly_premiums"].items()}
+
+            output_filename = f"resale_template_{selection}.xlsx"
+            output_path = generate_resale_template(
+                insured_name=policy["insured_name"],
+                dob=policy["dob"],
+                carrier=policy["carrier"],
+                le_months=policy["le_months"],
+                le_report_date=policy["le_report_date"],
+                death_benefit=policy["death_benefit"],
+                investment=investment,
+                monthly_premiums=monthly_premiums,
+                output_filename=output_filename
+            )
+
+            with open(output_path, "rb") as f:
+                st.success("✅ Template generated successfully!")
+                st.download_button("📥 Download Excel", f, file_name=output_filename)
+
 
